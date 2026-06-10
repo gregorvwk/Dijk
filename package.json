@@ -1,0 +1,15 @@
+{
+  "name": "dijk",
+  "private": true,
+  "scripts": {
+    "test": "node --check src/cli.js && node --check src/commands/cleanup.js && node --check src/commands/help.js && node --check src/commands/init.js && node --check src/commands/npm.js && node --check src/core/config.js && node --check src/core/docker.js && node --check src/core/npm.js && node --check src/utils/exec.js",
+    "dev": "node src/cli.js",
+    "cleanup": "node src/cli.js cleanup"
+  },
+  "bin": {
+    "dijk": "src/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

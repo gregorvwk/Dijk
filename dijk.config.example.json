@@ -1,0 +1,8 @@
+{
+  "image": "node:22-bookworm-slim",
+  "ports": [],
+  "runArgs": {},
+  "hiddenFiles": [
+    "dijk.config.json"
+  ]
+}
