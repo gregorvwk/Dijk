@@ -56,17 +56,22 @@ dijk init
 ```
 
 This creates `dijk.config.json` in the current project. Edit it to choose the
-Docker image, published ports, and script arguments:
+project directory, Docker image, published ports, and script arguments:
 
 ```json
 {
   "image": "node:22-bookworm-slim",
+  "projectDir": "./",
   "ports": ["3000", "5173"],
   "runArgs": {},
   "hiddenFiles": ["dijk.config.json", ".env"]
 }
 ```
 
+- `projectDir` selects the directory mounted as the project. It defaults to `./`.
+  Relative paths are resolved from `dijk.config.json`; sibling and absolute paths
+  are allowed, for example `"../other-project"`. The selected directory is
+  exposed read-write to the container.
 - `image` selects the Docker image.
 - `ports` publishes ports for `dijk run` commands and binds them to host
   `127.0.0.1` by default. Use `"8080:3000"` to map different host and container
@@ -85,8 +90,9 @@ when the command exits or is interrupted.
 
 ### Project-only access
 
-Only the current project's files are exposed to the container. The container runs
-as the current user on Unix, so generated files keep their normal ownership.
+Only the configured project directory's files are exposed to the container. The
+container runs as the current user on Unix, so generated files keep their normal
+ownership.
 
 ### Persistent dependencies
 

@@ -1,5 +1,6 @@
 {
   "image": "node:22-bookworm-slim",
+  "projectDir": "./",
   "ports": [],
   "runArgs": {},
   "hiddenFiles": [

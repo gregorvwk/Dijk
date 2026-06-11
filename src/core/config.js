@@ -6,6 +6,7 @@ const { isAbsolute, join, normalize, sep } = require("node:path")
 const configFileName = "dijk.config.json"
 const defaultProjectConfig = {
     image: "node:22-bookworm-slim",
+    projectDir: "./",
     ports: [],
     runArgs: {},
     hiddenFiles: [configFileName],
@@ -32,6 +33,10 @@ const validateConfig = function(config) {
 
     if (config.image !== undefined && (typeof config.image !== "string" || !config.image.trim())) {
         throw new Error(`${configFileName}: image must be a non-empty string`)
+    }
+
+    if (config.projectDir !== undefined && (typeof config.projectDir !== "string" || !config.projectDir.trim())) {
+        throw new Error(`${configFileName}: projectDir must be a non-empty path`)
     }
 
     if (config.ports !== undefined) {

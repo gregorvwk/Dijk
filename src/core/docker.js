@@ -11,6 +11,7 @@ const defaultDockerConfig = {
     ports: defaultProjectConfig.ports,
     hiddenFiles: defaultProjectConfig.hiddenFiles,
     workDir: "/workspace",
+    configRoot: process.cwd(),
     projectRoot: process.cwd(),
     user: typeof process.getuid === "function" && typeof process.getgid === "function"
         ? `${process.getuid()}:${process.getgid()}`
@@ -21,14 +22,30 @@ const defaultDockerConfig = {
 }
 
 const getDockerConfig = function() {
-    const projectConfig = loadProjectConfig(defaultDockerConfig.projectRoot)
+    const projectConfig = loadProjectConfig(defaultDockerConfig.configRoot)
+    const projectRoot = resolveProjectRoot(
+        defaultDockerConfig.configRoot,
+        projectConfig.projectDir ?? defaultProjectConfig.projectDir,
+    )
 
     return {
         ...defaultDockerConfig,
         image: projectConfig.image ?? defaultDockerConfig.image,
         ports: projectConfig.ports ?? defaultDockerConfig.ports,
         hiddenFiles: projectConfig.hiddenFiles ?? defaultDockerConfig.hiddenFiles,
+        projectRoot,
     }
+}
+
+const resolveProjectRoot = function(configRoot, projectDir) {
+    const realConfigRoot = realpathSync(configRoot)
+    const projectRoot = realpathSync(resolve(realConfigRoot, projectDir))
+
+    if (!lstatSync(projectRoot).isDirectory()) {
+        throw new Error(`Project directory is not a directory: ${projectDir}`)
+    }
+
+    return projectRoot
 }
 
 const createContainerName = function() {
