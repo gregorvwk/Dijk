@@ -1,6 +1,7 @@
 // project config
 
 const { readFileSync, writeFileSync } = require("node:fs")
+const { isIP } = require("node:net")
 const { isAbsolute, join, normalize, sep } = require("node:path")
 
 const configFileName = "dijk.config.json"
@@ -8,6 +9,11 @@ const defaultProjectConfig = {
     image: "node:22-bookworm-slim",
     projectDir: "./",
     ports: [],
+    network: {
+        enabled: true,
+        allowedDomains: ["registry.npmjs.org"],
+        allowedIps: [],
+    },
     runArgs: {},
     hiddenFiles: [configFileName],
 }
@@ -24,6 +30,41 @@ const isSafeProjectPath = function(path) {
     const normalizedPath = normalize(path)
 
     return normalizedPath !== "." && normalizedPath !== ".." && !normalizedPath.startsWith(`..${sep}`)
+}
+
+const isDomainName = function(domain) {
+    if (typeof domain !== "string" || !domain.trim() || domain.includes("/") || domain.includes(":")) {
+        return false
+    }
+
+    return domain
+        .split(".")
+        .every((part) => {
+            return part
+                && !part.startsWith("-")
+                && !part.endsWith("-")
+                && part.split("").every((char) => {
+                    const code = char.charCodeAt(0)
+                    const isLetter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+                    const isNumber = code >= 48 && code <= 57
+
+                    return isLetter || isNumber || char === "-"
+                })
+        })
+}
+
+const validateNetworkConfig = function(network) {
+    if (!network || typeof network !== "object" || Array.isArray(network)) {
+        return false
+    }
+
+    const allowedIps = network.allowedIps ?? []
+
+    return typeof network.enabled === "boolean"
+        && Array.isArray(network.allowedDomains)
+        && network.allowedDomains.every(isDomainName)
+        && Array.isArray(allowedIps)
+        && allowedIps.every((ip) => typeof ip === "string" && isIP(ip) !== 0)
 }
 
 const validateConfig = function(config) {
@@ -43,6 +84,10 @@ const validateConfig = function(config) {
         if (!Array.isArray(config.ports) || config.ports.some((port) => typeof port !== "string" || !port.trim())) {
             throw new Error(`${configFileName}: ports must be an array of non-empty strings`)
         }
+    }
+
+    if (config.network !== undefined && !validateNetworkConfig(config.network)) {
+        throw new Error(`${configFileName}: network must contain enabled, allowedDomains, and optional allowedIps`)
     }
 
     if (config.runArgs !== undefined) {

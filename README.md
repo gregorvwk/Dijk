@@ -63,6 +63,11 @@ project directory, Docker image, published ports, and script arguments:
   "image": "node:22-bookworm-slim",
   "projectDir": "./",
   "ports": ["3000", "5173"],
+  "network": {
+    "enabled": true,
+    "allowedDomains": ["registry.npmjs.org"],
+    "allowedIps": []
+  },
   "runArgs": {},
   "hiddenFiles": ["dijk.config.json", ".env"]
 }
@@ -78,6 +83,11 @@ project directory, Docker image, published ports, and script arguments:
   ports. To deliberately expose a port to the network, include an address such as
   `"0.0.0.0:8080:3000"`. Applications must listen on `0.0.0.0` inside the
   container for published ports to be reachable.
+- `network.enabled` turns network restrictions on or off. It is enabled by default.
+- `network.allowedDomains` lists exact domains commands are allowed to reach. The
+  npm registry is included by default for installs.
+- `network.allowedIps` lists direct IP addresses commands are allowed to reach.
+  This is useful for tools that connect to an IP without a hostname.
 - `runArgs` optionally passes arguments to named scripts.
 - `hiddenFiles` contains relative project paths to mask.
 
@@ -104,6 +114,20 @@ The project's `node_modules` remains in the project between commands. Repeated
 Configured files and directories are masked inside the container. Package scripts
 cannot read their original contents.
 
+### Network Restrictions
+
+When network restrictions are enabled with allowed domains or IPs, Dijk starts a
+gateway container and runs the package container inside the gateway's network
+namespace. The gateway owns the outbound network path and installs firewall rules
+before the package command starts. This means code does not need special network environment
+variables: HTTP, HTTPS, WebSockets, raw TCP, and other protocols all go through the
+same gateway rules.
+
+Configured domains are resolved by the gateway and allowed by IP address. Direct
+IP connections must be listed in `network.allowedIps`. If `network.enabled` is
+`true` and both allow lists are empty, Dijk skips the gateway and runs the package
+container with no network access.
+
 ## What is it trying to solve?
 
 ### Supply chain attacks
@@ -128,7 +152,8 @@ Everything else should be off limits unless the developer adds it to the sandbox
 ## What it does not solve
 
 - It does not make malicious packages safe.
-- It does not block malicious network behavior.
+- Network allowlisting is enforced at the IP layer. If an allowed domain shares an
+  IP address with other services, Dijk cannot distinguish those services by hostname.
 - It does not aim to support every unusual native build or host integration.
 
 ## Design principles

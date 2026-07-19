@@ -1,55 +1,30 @@
-// docker setup
+// docker runtime
 
-const { lstatSync, realpathSync } = require("node:fs")
-const { relative, resolve, sep } = require("node:path")
 const { spawnSync } = require("node:child_process")
-const { defaultProjectConfig, loadProjectConfig } = require("./config")
+const { resolve } = require("node:path")
 const { spawnProcess } = require("../utils/exec")
 
-const defaultDockerConfig = {
-    image: defaultProjectConfig.image,
-    ports: defaultProjectConfig.ports,
-    hiddenFiles: defaultProjectConfig.hiddenFiles,
-    workDir: "/workspace",
-    configRoot: process.cwd(),
-    projectRoot: process.cwd(),
-    user: typeof process.getuid === "function" && typeof process.getgid === "function"
-        ? `${process.getuid()}:${process.getgid()}`
-        : null,
-    env: {
-        HOME: "/tmp",
-    },
-}
+const gatewayImage = "nicolaka/netshoot:latest"
+const gatewayScriptPath = resolve(__dirname, "../network/gateway.sh")
 
-const getDockerConfig = function() {
-    const projectConfig = loadProjectConfig(defaultDockerConfig.configRoot)
-    const projectRoot = resolveProjectRoot(
-        defaultDockerConfig.configRoot,
-        projectConfig.projectDir ?? defaultProjectConfig.projectDir,
-    )
-
-    return {
-        ...defaultDockerConfig,
-        image: projectConfig.image ?? defaultDockerConfig.image,
-        ports: projectConfig.ports ?? defaultDockerConfig.ports,
-        hiddenFiles: projectConfig.hiddenFiles ?? defaultDockerConfig.hiddenFiles,
-        projectRoot,
-    }
-}
-
-const resolveProjectRoot = function(configRoot, projectDir) {
-    const realConfigRoot = realpathSync(configRoot)
-    const projectRoot = realpathSync(resolve(realConfigRoot, projectDir))
-
-    if (!lstatSync(projectRoot).isDirectory()) {
-        throw new Error(`Project directory is not a directory: ${projectDir}`)
-    }
-
-    return projectRoot
+const createResourceName = function(type) {
+    return `dijk-${type}-${process.pid}-${Date.now()}`
 }
 
 const createContainerName = function() {
-    return `dijk-${process.pid}-${Date.now()}`
+    return createResourceName("app")
+}
+
+const runDockerCommand = function(args) {
+    const result = spawnSync("docker", args, {
+        encoding: "utf-8",
+    })
+
+    if (result.status !== 0) {
+        throw new Error((result.stderr || result.stdout || "Docker command failed").trim())
+    }
+
+    return result.stdout.trim()
 }
 
 const removeContainer = function(containerName) {
@@ -58,42 +33,19 @@ const removeContainer = function(containerName) {
     })
 }
 
-const addHiddenFileMounts = function(args, config) {
-    const realProjectRoot = realpathSync(config.projectRoot)
+const removeNetwork = function(networkName) {
+    spawnSync("docker", ["network", "rm", networkName], {
+        stdio: "ignore",
+    })
+}
 
-    for (const hiddenFile of config.hiddenFiles) {
-        const hostPath = resolve(config.projectRoot, hiddenFile)
-        const containerPath = `${config.workDir}/${hiddenFile.split(sep).join("/")}`
-        let fileInfo
-
-        try {
-            fileInfo = lstatSync(hostPath)
-        } catch (error) {
-            if (error.code === "ENOENT") {
-                continue
-            }
-
-            throw error
-        }
-
-        if (fileInfo.isSymbolicLink()) {
-            throw new Error(`Cannot hide symbolic link: ${hiddenFile}`)
-        }
-
-        const realHiddenPath = realpathSync(hostPath)
-        const pathFromProject = relative(realProjectRoot, realHiddenPath)
-
-        if (pathFromProject === ".." || pathFromProject.startsWith(`..${sep}`)) {
-            throw new Error(`Hidden path escapes the project: ${hiddenFile}`)
-        }
-
-        if (fileInfo.isDirectory()) {
-            args.push("--mount", `type=tmpfs,destination=${containerPath},tmpfs-mode=000`)
-            continue
-        }
-
-        args.push("--mount", `type=bind,source=/dev/null,destination=${containerPath},readonly`)
+const cleanupNetworkGateway = function(gateway) {
+    if (!gateway) {
+        return
     }
+
+    removeContainer(gateway.containerName)
+    removeNetwork(gateway.networkName)
 }
 
 const bindPortToLocalhost = function(port) {
@@ -110,51 +62,164 @@ const bindPortToLocalhost = function(port) {
     return `127.0.0.1:${hostPort}:${containerPort}${protocolSuffix}`
 }
 
-const buildDockerRunArgs = function(npmArgs, containerName, config = getDockerConfig()) {
+const addMountArgs = function(args, mount) {
+    if (mount.type === "tmpfs") {
+        args.push("--mount", `type=tmpfs,destination=${mount.destination},tmpfs-mode=${mount.mode}`)
+        return
+    }
+
+    const readonlySuffix = mount.readonly ? ",readonly" : ""
+
+    args.push("--mount", `type=bind,source=${mount.source},destination=${mount.destination}${readonlySuffix}`)
+}
+
+const getAllowedIps = function(network) {
+    if (!Array.isArray(network.allowedIps)) {
+        return []
+    }
+
+    return network.allowedIps
+}
+
+const hasAllowedNetworkTargets = function(network) {
+    return network.allowedDomains.length > 0 || getAllowedIps(network).length > 0
+}
+
+const addPortArgs = function(args, plan) {
+    if (plan.command[0] !== "npm" || plan.command[1] !== "run") {
+        return
+    }
+
+    for (const port of plan.ports) {
+        args.push("--publish", bindPortToLocalhost(port))
+    }
+}
+
+const waitForNetworkGateway = function(containerName) {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+        const ready = spawnSync("docker", ["exec", containerName, "test", "-f", "/tmp/dijk-gateway-ready"])
+
+        if (ready.status === 0) {
+            return
+        }
+
+        const failed = spawnSync("docker", ["exec", containerName, "test", "-f", "/tmp/dijk-gateway-failed"])
+
+        if (failed.status === 0) {
+            throw new Error("Dijk gateway failed to initialize")
+        }
+
+        spawnSync("sleep", ["0.1"])
+    }
+
+    throw new Error("Dijk gateway did not become ready")
+}
+
+const startNetworkGateway = function(plan) {
+    if (!plan.network.enabled || !hasAllowedNetworkTargets(plan.network)) {
+        return null
+    }
+
+    const networkName = createResourceName("net")
+    const containerName = createResourceName("gateway")
+    const args = [
+        "run",
+        "--detach",
+        "--rm",
+        "--init",
+        "--name",
+        containerName,
+        "--network",
+        networkName,
+        "--cap-add",
+        "NET_ADMIN",
+        "--label",
+        "dijk=true",
+        "--env",
+        `ALLOWED_DOMAINS=${plan.network.allowedDomains.join(",")}`,
+        "--env",
+        `ALLOWED_IPS=${getAllowedIps(plan.network).join(",")}`,
+        "--mount",
+        `type=bind,source=${gatewayScriptPath},destination=/dijk-gateway.sh,readonly`,
+    ]
+
+    addPortArgs(args, plan)
+    args.push(gatewayImage, "sh", "/dijk-gateway.sh")
+
+    try {
+        runDockerCommand([
+            "network",
+            "create",
+            "--label",
+            "dijk=true",
+            networkName,
+        ])
+        runDockerCommand(args)
+        waitForNetworkGateway(containerName)
+    } catch (error) {
+        cleanupNetworkGateway({ containerName, networkName })
+        throw error
+    }
+
+    return { containerName, networkName }
+}
+
+const buildDockerRunArgs = function(plan, containerName, gateway) {
+    const env = {
+        ...plan.env,
+    }
     const args = [
         "run",
         "--rm",
         "--init",
         "--name",
         containerName,
-        "--label",
-        "dijk=true",
-        "--label",
-        `dijk.project=${config.projectRoot}`,
-        "--volume",
-        `${config.projectRoot}:${config.workDir}`,
-        "--workdir",
-        config.workDir,
     ]
 
-    addHiddenFileMounts(args, config)
-
-    if (config.user) {
-        args.push("--user", config.user)
+    for (const [name, value] of Object.entries(plan.labels)) {
+        args.push("--label", `${name}=${value}`)
     }
 
-    if (npmArgs[0] === "run") {
-        for (const port of config.ports) {
-            args.push("--publish", bindPortToLocalhost(port))
-        }
+    for (const mount of plan.mounts) {
+        addMountArgs(args, mount)
     }
 
-    for (const [name, value] of Object.entries(config.env)) {
+    args.push("--workdir", plan.workDir)
+
+    if (gateway) {
+        args.push("--network", `container:${gateway.containerName}`)
+    } else if (plan.network.enabled && !hasAllowedNetworkTargets(plan.network)) {
+        args.push("--network", "none")
+    }
+
+    if (plan.user) {
+        args.push("--user", plan.user)
+    }
+
+    if (!gateway) {
+        addPortArgs(args, plan)
+    }
+
+    for (const [name, value] of Object.entries(env)) {
         args.push("--env", `${name}=${value}`)
     }
 
-    args.push(config.image, "npm", ...npmArgs)
+    args.push(plan.image, ...plan.command)
 
     return args
 }
 
-const spawnDockerProcess = function(npmArgs, config = getDockerConfig()) {
+const runDockerPlan = function(plan) {
+    const gateway = startNetworkGateway(plan)
     const containerName = createContainerName()
-    const dockerArgs = buildDockerRunArgs(npmArgs, containerName, config)
+    const dockerArgs = buildDockerRunArgs(plan, containerName, gateway)
 
     return spawnProcess("docker", dockerArgs, {
-        cleanup: () => removeContainer(containerName),
+        cleanup: () => {
+            removeContainer(containerName)
+            cleanupNetworkGateway(gateway)
+        },
     })
 }
 
-module.exports = { spawnDockerProcess }
+module.exports = { runDockerPlan }
