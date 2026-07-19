@@ -90,6 +90,12 @@ const validateConfig = function(config) {
         }
     }
 
+    if (config.hiddenFiles !== undefined) {
+        if (!Array.isArray(config.hiddenFiles) || config.hiddenFiles.some((path) => !isSafeProjectPath(path))) {
+            throw new Error(`${configFileName}: hiddenFiles must contain relative paths inside the project`)
+        }
+    }
+
     if (config.secrets !== undefined && !validateSecrets(config.secrets, config.hiddenFiles ?? defaultProjectConfig.hiddenFiles)) {
         throw new Error(`${configFileName}: secrets must map profiles to hidden env files and environment variable mappings`)
     }
@@ -110,12 +116,6 @@ const validateConfig = function(config) {
 
         if (invalidRunArgs) {
             throw new Error(`${configFileName}: runArgs must map script names to arrays of non-empty strings`)
-        }
-    }
-
-    if (config.hiddenFiles !== undefined) {
-        if (!Array.isArray(config.hiddenFiles) || config.hiddenFiles.some((path) => !isSafeProjectPath(path))) {
-            throw new Error(`${configFileName}: hiddenFiles must contain relative paths inside the project`)
         }
     }
 }

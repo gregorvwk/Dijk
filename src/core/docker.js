@@ -110,7 +110,7 @@ const bindPortToLocalhost = function(port) {
     return `127.0.0.1:${hostPort}:${containerPort}${protocolSuffix}`
 }
 
-const buildDockerRunArgs = function(npmArgs, containerName, config = getDockerConfig()) {
+const buildDockerRunArgs = function(npmArgs, containerName, config) {
     const args = [
         "run",
         "--rm",
