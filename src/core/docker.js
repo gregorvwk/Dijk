@@ -148,9 +148,18 @@ const buildDockerRunArgs = function(npmArgs, containerName, config = getDockerCo
     return args
 }
 
-const spawnDockerProcess = function(npmArgs, config = getDockerConfig()) {
+const spawnDockerProcess = function(npmArgs, config = {}) {
+    const baseConfig = getDockerConfig()
+    const dockerConfig = {
+        ...baseConfig,
+        ...config,
+        env: {
+            ...baseConfig.env,
+            ...config.env,
+        },
+    }
     const containerName = createContainerName()
-    const dockerArgs = buildDockerRunArgs(npmArgs, containerName, config)
+    const dockerArgs = buildDockerRunArgs(npmArgs, containerName, dockerConfig)
 
     return spawnProcess("docker", dockerArgs, {
         cleanup: () => removeContainer(containerName),

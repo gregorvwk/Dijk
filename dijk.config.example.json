@@ -2,8 +2,11 @@
   "image": "node:22-bookworm-slim",
   "projectDir": "./",
   "ports": [],
+  "secrets": {},
+  "secretProfiles": {},
   "runArgs": {},
   "hiddenFiles": [
-    "dijk.config.json"
+    "dijk.config.json",
+    ".env"
   ]
 }

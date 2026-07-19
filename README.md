@@ -63,6 +63,8 @@ project directory, Docker image, published ports, and script arguments:
   "image": "node:22-bookworm-slim",
   "projectDir": "./",
   "ports": ["3000", "5173"],
+  "secrets": {},
+  "secretProfiles": {},
   "runArgs": {},
   "hiddenFiles": ["dijk.config.json", ".env"]
 }
@@ -78,8 +80,13 @@ project directory, Docker image, published ports, and script arguments:
   ports. To deliberately expose a port to the network, include an address such as
   `"0.0.0.0:8080:3000"`. Applications must listen on `0.0.0.0` inside the
   container for published ports to be reachable.
+- `secrets` maps profiles to hidden env files and environment variables. Values
+  name host variables, not the actual secret values.
+- `secretProfiles` maps commands like `run:dev`, `run:build`, `install`, or `ci`
+  to a secret profile.
 - `runArgs` optionally passes arguments to named scripts.
-- `hiddenFiles` contains relative project paths to mask.
+- `hiddenFiles` contains relative project paths to mask. Secret source files must
+  be listed here.
 
 ## Features
 
@@ -103,6 +110,48 @@ The project's `node_modules` remains in the project between commands. Repeated
 
 Configured files and directories are masked inside the container. Package scripts
 cannot read their original contents.
+
+### Secrets
+
+Secrets are opt-in. Each profile reads one hidden env file, then injects only the
+listed variables into the container. Host environment variables override file
+values.
+
+For example, `.env.dev` can contain real local values:
+
+```sh
+DIJK_API_TOKEN=real-dev-token
+```
+
+Then configure which container variables each command may receive:
+
+```json
+{
+  "secrets": {
+    "dev": {
+      "from": ".env.dev",
+      "env": {
+        "API_TOKEN": "DIJK_API_TOKEN"
+      }
+    },
+    "prod": {
+      "from": ".env.prod",
+      "env": {
+        "API_TOKEN": "DIJK_API_TOKEN"
+      }
+    }
+  },
+  "secretProfiles": {
+    "run:dev": "dev",
+    "run:build": "prod"
+  },
+  "hiddenFiles": ["dijk.config.json", ".env.dev", ".env.prod"]
+}
+```
+
+With this setup, `dijk run dev` reads only `.env.dev` and receives `API_TOKEN`
+from `DIJK_API_TOKEN`. `dijk run build` reads only `.env.prod`. Other commands
+receive no secrets unless configured.
 
 ## What is it trying to solve?
 

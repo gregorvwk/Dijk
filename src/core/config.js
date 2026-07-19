@@ -8,8 +8,10 @@ const defaultProjectConfig = {
     image: "node:22-bookworm-slim",
     projectDir: "./",
     ports: [],
+    secrets: {},
+    secretProfiles: {},
     runArgs: {},
-    hiddenFiles: [configFileName],
+    hiddenFiles: [configFileName, ".env"],
 }
 
 const getConfigPath = function(projectRoot) {
@@ -24,6 +26,49 @@ const isSafeProjectPath = function(path) {
     const normalizedPath = normalize(path)
 
     return normalizedPath !== "." && normalizedPath !== ".." && !normalizedPath.startsWith(`..${sep}`)
+}
+
+const isEnvName = function(name) {
+    if (typeof name !== "string" || !name.trim()) {
+        return false
+    }
+
+    return name.split("").every((char, index) => {
+        const code = char.charCodeAt(0)
+        const isLetter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+        const isNumber = code >= 48 && code <= 57
+
+        return char === "_" || isLetter || (index > 0 && isNumber)
+    })
+}
+
+const isPlainObject = function(value) {
+    return value && typeof value === "object" && !Array.isArray(value)
+}
+
+const validateSecretEnv = function(env) {
+    return isPlainObject(env)
+        && Object.entries(env).every(([containerName, hostName]) => {
+            return isEnvName(containerName) && isEnvName(hostName)
+        })
+}
+
+const validateSecrets = function(secrets, hiddenFiles) {
+    return isPlainObject(secrets)
+        && Object.entries(secrets).every(([profile, secretConfig]) => {
+            return profile.trim()
+                && isPlainObject(secretConfig)
+                && isSafeProjectPath(secretConfig.from)
+                && hiddenFiles.includes(secretConfig.from)
+                && validateSecretEnv(secretConfig.env)
+        })
+}
+
+const validateSecretProfiles = function(secretProfiles) {
+    return isPlainObject(secretProfiles)
+        && Object.entries(secretProfiles).every(([command, profile]) => {
+            return command.trim() && typeof profile === "string" && profile.trim()
+        })
 }
 
 const validateConfig = function(config) {
@@ -43,6 +88,14 @@ const validateConfig = function(config) {
         if (!Array.isArray(config.ports) || config.ports.some((port) => typeof port !== "string" || !port.trim())) {
             throw new Error(`${configFileName}: ports must be an array of non-empty strings`)
         }
+    }
+
+    if (config.secrets !== undefined && !validateSecrets(config.secrets, config.hiddenFiles ?? defaultProjectConfig.hiddenFiles)) {
+        throw new Error(`${configFileName}: secrets must map profiles to hidden env files and environment variable mappings`)
+    }
+
+    if (config.secretProfiles !== undefined && !validateSecretProfiles(config.secretProfiles)) {
+        throw new Error(`${configFileName}: secretProfiles must map command names to profile names`)
     }
 
     if (config.runArgs !== undefined) {
