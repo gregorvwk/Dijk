@@ -17,9 +17,10 @@ mark_failed() {
 
 trap mark_failed EXIT
 
-run_ip6tables() {
-    if has_command ip6tables; then
-        ip6tables "$@" || true
+require_firewall_tools() {
+    if ! has_command iptables || ! has_command ip6tables; then
+        echo "Dijk gateway requires both iptables and ip6tables" >&2
+        exit 1
     fi
 }
 
@@ -31,10 +32,10 @@ reset_output_rules() {
     iptables -A OUTPUT -d 127.0.0.11 -p udp --dport 53 -j ACCEPT
     iptables -A OUTPUT -d 127.0.0.11 -p tcp --dport 53 -j ACCEPT
 
-    run_ip6tables -P OUTPUT DROP
-    run_ip6tables -F OUTPUT
-    run_ip6tables -A OUTPUT -o lo -j ACCEPT
-    run_ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    ip6tables -P OUTPUT DROP
+    ip6tables -F OUTPUT
+    ip6tables -A OUTPUT -o lo -j ACCEPT
+    ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 }
 
 allow_ip() {
@@ -42,7 +43,7 @@ allow_ip() {
 
     case "$ip" in
         *:*)
-            run_ip6tables -A OUTPUT -d "$ip" -j ACCEPT
+            ip6tables -A OUTPUT -d "$ip" -j ACCEPT
             ;;
         *)
             iptables -A OUTPUT -d "$ip" -j ACCEPT
@@ -88,11 +89,12 @@ allow_domain() {
 }
 
 apply_firewall() {
+require_firewall_tools
     reset_output_rules
     for_csv_value "$allowed_domains" allow_domain
     for_csv_value "$allowed_ips" allow_ip
     iptables -A OUTPUT -j REJECT
-    run_ip6tables -A OUTPUT -j REJECT
+    ip6tables -A OUTPUT -j REJECT
 }
 
 apply_firewall
