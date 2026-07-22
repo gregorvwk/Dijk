@@ -2,6 +2,13 @@
   "image": "node:22-bookworm-slim",
   "projectDir": "./",
   "ports": [],
+  "network": {
+    "enabled": true,
+    "allowedDomains": [
+      "registry.npmjs.org"
+    ],
+    "allowedIps": []
+  },
   "runArgs": {},
   "hiddenFiles": [
     "dijk.config.json"
