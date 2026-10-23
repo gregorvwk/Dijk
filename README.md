@@ -153,7 +153,8 @@ TTY, so prompts, colors and dev server keyboard shortcuts work as usual.
 
 **Protected config.** `dijk.config.json` decides what the sandbox may do, so
 the sandbox can't touch it. Inside the container it's always masked: it can't
-be read, written, deleted or replaced. This doesn't depend on `hiddenFiles`.
+be read, written, deleted or replaced. This doesn't depend on `hiddenFiles`
+and can't be turned off.
 The config must be in the project root or outside the project; Dijk refuses to
 run if `projectDir` points to a folder that contains it in a subfolder.
 
@@ -198,10 +199,16 @@ explicitly ask for another address.
 | `network.allowedDomains` | Exact domains commands may reach. Includes `registry.npmjs.org` by default. |
 | `network.allowedIps` | IP addresses commands may reach directly. |
 | `runArgs` | Extra arguments passed to named scripts, e.g. `{ "dev": ["--host", "0.0.0.0"] }`. |
-| `hiddenFiles` | Project-relative paths to mask. Exact paths only; globs are not supported. |
+| `hiddenFiles` | Project-relative paths to mask. Exact paths only; globs are not supported. `dijk.config.json` is always masked, listed or not. |
 
-`dijk.config.json` is always hidden, whether or not it's listed. Add `.env` and
-any other secret files to `hiddenFiles` yourself.
+> **`dijk.config.json` is always hidden.** `dijk init` lists it in
+> `hiddenFiles` so you can see that it's protected, but that entry is only a
+> reminder. Removing it does not expose the config: Dijk masks it regardless,
+> and there is no setting to turn that off. Sandboxed code must never be able to
+> read or change the rules it runs under. See
+> [Design principles](#design-principles).
+
+Add `.env` and any other secret files to `hiddenFiles` yourself.
 
 ## Known gaps
 
@@ -226,6 +233,9 @@ order of severity. They are being worked on.
 - **Feels like npm.** Same commands, same project layout.
 - **Isolated by default.** Extra files, credentials and host tools must be
   added explicitly. No "accept the risk" button.
+- **The sandbox never controls its own rules.** `dijk.config.json` is always
+  hidden from sandboxed code: it can't be read, written, deleted or replaced.
+  This is not configurable, and won't become configurable.
 - **Backwards compatible.** Package maintainers should not need to change
   anything for Dijk.
 - **Few dependencies.** A security tool should not add to the problem. Dijk has
