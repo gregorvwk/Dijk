@@ -1,8 +1,12 @@
 // sandbox planning
 
-const { lstatSync, realpathSync } = require("node:fs")
-const { relative, resolve, sep } = require("node:path")
+const { createHash } = require("node:crypto")
+const { lstatSync, mkdirSync, realpathSync } = require("node:fs")
+const { homedir } = require("node:os")
+const { join, relative, resolve, sep } = require("node:path")
 const { defaultProjectConfig, loadProjectConfig } = require("./config")
+
+const npmCacheDestination = "/dijk/npm-cache"
 
 const defaultSandboxConfig = {
     image: defaultProjectConfig.image,
@@ -28,6 +32,25 @@ const resolveProjectRoot = function(configRoot, projectDir) {
     }
 
     return projectRoot
+}
+
+const getProjectRoot = function(projectConfig = loadProjectConfig(defaultSandboxConfig.configRoot)) {
+    return resolveProjectRoot(
+        defaultSandboxConfig.configRoot,
+        projectConfig.projectDir ?? defaultProjectConfig.projectDir,
+    )
+}
+
+// Each project gets its own npm cache on the host, so a package in one project
+// cannot tamper with cached metadata or tarballs used by another project.
+const getNpmCacheDir = function(projectRoot) {
+    const cacheRoot = process.env.XDG_CACHE_HOME || join(homedir(), ".cache")
+    const projectId = createHash("sha256").update(projectRoot).digest("hex").slice(0, 16)
+    const cacheDir = join(cacheRoot, "dijk", "npm", projectId)
+
+    mkdirSync(cacheDir, { recursive: true, mode: 0o700 })
+
+    return cacheDir
 }
 
 const createHiddenFileMount = function(projectRoot, workDir, hiddenFile) {
@@ -81,14 +104,12 @@ const createHiddenFileMounts = function(projectRoot, workDir, hiddenFiles) {
 
 const createSandboxPlan = function(command, overrides = {}) {
     const projectConfig = loadProjectConfig(defaultSandboxConfig.configRoot)
-    const projectRoot = resolveProjectRoot(
-        defaultSandboxConfig.configRoot,
-        projectConfig.projectDir ?? defaultProjectConfig.projectDir,
-    )
+    const projectRoot = getProjectRoot(projectConfig)
     const hiddenFiles = projectConfig.hiddenFiles ?? defaultSandboxConfig.hiddenFiles
     const workDir = defaultSandboxConfig.workDir
     const env = {
         ...defaultSandboxConfig.env,
+        npm_config_cache: npmCacheDestination,
         ...overrides.env,
     }
 
@@ -111,9 +132,14 @@ const createSandboxPlan = function(command, overrides = {}) {
                 source: projectRoot,
                 destination: workDir,
             },
+            {
+                type: "bind",
+                source: getNpmCacheDir(projectRoot),
+                destination: npmCacheDestination,
+            },
             ...createHiddenFileMounts(projectRoot, workDir, hiddenFiles),
         ],
     }
 }
 
-module.exports = { createSandboxPlan }
+module.exports = { createSandboxPlan, getProjectRoot }

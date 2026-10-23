@@ -28,7 +28,7 @@ const main = async function() {
         case COMMANDS.INIT:
             return initCommand()
         case COMMANDS.CLEANUP:
-            return cleanupCommand()
+            return cleanupCommand(args)
         case COMMANDS.HELP:
             return helpCommand()
         default:
