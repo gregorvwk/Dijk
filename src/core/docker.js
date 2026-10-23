@@ -102,7 +102,7 @@ const addTerminalArgs = function(args) {
 }
 
 const addPortArgs = function(args, plan) {
-    if (plan.command[0] !== "npm" || plan.command[1] !== "run") {
+    if (!plan.publishPorts) {
         return
     }
 

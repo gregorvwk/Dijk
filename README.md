@@ -77,6 +77,7 @@ dijk init        # create dijk.config.json
 dijk install     # npm install, sandboxed
 dijk ci          # npm ci, sandboxed
 dijk run dev     # npm run dev, sandboxed
+dijk exec npx eslint .  # any other command, sandboxed
 dijk cleanup     # remove this project's leftover containers and networks
 dijk cleanup --all  # same, for every project
 ```
@@ -104,8 +105,8 @@ Cannot find module @rollup/rollup-darwin-arm64
 ```
 
 This is intended. It means something tried to run dependency code on your
-machine instead of in the sandbox. Run the command through Dijk instead, for
-example as a script in `package.json` with `dijk run <script>`.
+machine instead of in the sandbox. Run the command through Dijk instead, with
+`dijk run <script>` or `dijk exec <command>`.
 
 Don't fix it with a plain `npm install` on the host. That replaces the Linux
 binaries, runs every install script on your machine, and breaks `dijk run` until
@@ -121,7 +122,8 @@ error. Watch out for:
 
 - **Git hooks.** Husky, lint-staged and similar tools run from `node_modules`
   on your machine on every commit. ESLint and Prettier are mostly pure
-  JavaScript, so they'll quietly work.
+  JavaScript, so they'll quietly work. Have your hooks call Dijk instead, for
+  example `dijk exec npx lint-staged`.
 - **Editor extensions.** The ESLint, Prettier and Vitest extensions and
   TypeScript server plugins load code from `node_modules` in your editor's
   process.
@@ -187,7 +189,7 @@ explicitly ask for another address.
 | --- | --- |
 | `image` | Docker image commands run in. |
 | `projectDir` | Directory mounted read-write as the project. Relative paths are resolved from `dijk.config.json`. Defaults to `./`. |
-| `ports` | Ports published for `dijk run`. `"5173"` binds `127.0.0.1:5173`. Use `"8080:3000"` to map different ports, or `"0.0.0.0:8080:3000"` to deliberately expose one to your network. Apps must listen on `0.0.0.0` inside the container. |
+| `ports` | Ports published for `dijk run` and `dijk exec`. `"5173"` binds `127.0.0.1:5173`. Use `"8080:3000"` to map different ports, or `"0.0.0.0:8080:3000"` to deliberately expose one to your network. Apps must listen on `0.0.0.0` inside the container. |
 | `network.enabled` | Turns network restrictions on or off. On by default. |
 | `network.allowedDomains` | Exact domains commands may reach. Includes `registry.npmjs.org` by default. |
 | `network.allowedIps` | IP addresses commands may reach directly. |

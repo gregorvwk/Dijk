@@ -121,6 +121,7 @@ const createSandboxPlan = function(command, overrides = {}) {
         user: defaultSandboxConfig.user,
         env,
         ports: projectConfig.ports ?? defaultSandboxConfig.ports,
+        publishPorts: overrides.publishPorts === true,
         network: projectConfig.network ?? defaultSandboxConfig.network,
         labels: {
             dijk: "true",

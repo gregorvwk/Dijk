@@ -11,6 +11,7 @@ Run everything for this project through Dijk:
 
   dijk install
   dijk run <script>
+  dijk exec <command>
 
 Dijk installs Linux builds of native packages. If a tool on your machine fails
 with a "wrong platform" error (esbuild, Rollup, SWC, sharp), that's expected:
