@@ -82,9 +82,8 @@ dijk cleanup     # remove this project's leftover containers and networks
 dijk cleanup --all  # same, for every project
 ```
 
-Run `dijk init` before your first install. Without a config file, Dijk uses
-defaults, but the project has no protected config yet (see
-[Known gaps](#known-gaps)).
+Run `dijk init` once per project. Dijk refuses to run without a
+`dijk.config.json`, so sandboxed code can never create one for you.
 
 ## Use it for everything
 
@@ -152,9 +151,14 @@ can't tamper with what another project installs.
 **Works in your terminal.** When Dijk runs in a terminal, the container gets a
 TTY, so prompts, colors and dev server keyboard shortcuts work as usual.
 
-**Hidden files.** Paths listed in `hiddenFiles` are masked inside the
-container. Scripts see an empty file or an unreadable directory instead of the
-real contents.
+**Protected config.** `dijk.config.json` decides what the sandbox may do, so
+the sandbox can't touch it. Inside the container it's always masked: it can't
+be read, written, deleted or replaced. This doesn't depend on `hiddenFiles`.
+The config must be in the project root or outside the project; Dijk refuses to
+run if `projectDir` points to a folder that contains it in a subfolder.
+
+**Hidden files.** Paths listed in `hiddenFiles` are masked the same way. Files
+can't be read or written, and directories appear empty and unreadable.
 
 **Network allowlist.** Dijk starts a gateway container that owns the network
 and runs your command inside the gateway's network namespace. The gateway
@@ -188,7 +192,7 @@ explicitly ask for another address.
 | Key | Description |
 | --- | --- |
 | `image` | Docker image commands run in. |
-| `projectDir` | Directory mounted read-write as the project. Relative paths are resolved from `dijk.config.json`. Defaults to `./`. |
+| `projectDir` | Directory mounted read-write as the project. Relative paths are resolved from `dijk.config.json`. Defaults to `./`. Must not contain the config's folder as a subfolder, so `"../other-project"` works but `"../"` doesn't. |
 | `ports` | Ports published for `dijk run` and `dijk exec`. `"5173"` binds `127.0.0.1:5173`. Use `"8080:3000"` to map different ports, or `"0.0.0.0:8080:3000"` to deliberately expose one to your network. Apps must listen on `0.0.0.0` inside the container. |
 | `network.enabled` | Turns network restrictions on or off. On by default. |
 | `network.allowedDomains` | Exact domains commands may reach. Includes `registry.npmjs.org` by default. |
@@ -196,8 +200,8 @@ explicitly ask for another address.
 | `runArgs` | Extra arguments passed to named scripts, e.g. `{ "dev": ["--host", "0.0.0.0"] }`. |
 | `hiddenFiles` | Project-relative paths to mask. Exact paths only; globs are not supported. |
 
-The default config only hides `dijk.config.json`. Add `.env` and any other
-secret files yourself.
+`dijk.config.json` is always hidden, whether or not it's listed. Add `.env` and
+any other secret files to `hiddenFiles` yourself.
 
 ## Known gaps
 
@@ -208,9 +212,6 @@ order of severity. They are being worked on.
   including `.git/hooks`, `.git/config`, `package.json` scripts,
   `.vscode/tasks.json` and `.envrc`. Code in the container can plant commands
   that your host runs later, for example on the next `git status`.
-- **A missing config can be planted.** If `dijk.config.json` does not exist,
-  code in the container can create one that disables the network rules or
-  mounts a different directory on the next run. Always run `dijk init` first.
 - **DNS is not restricted.** Lookups for any domain reach Docker's resolver, so
   data can leak through DNS queries even when HTTP is blocked.
 - **IP-level allowlisting.** Allowed domains are allowed by IP address. Services
