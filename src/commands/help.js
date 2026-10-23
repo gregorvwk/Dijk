@@ -8,7 +8,8 @@ Usage:
   dijk install
   dijk ci
   dijk run <script>
-  dijk cleanup
+  dijk exec <command> [args...]
+  dijk cleanup [--all]
   dijk --help
 `)
 

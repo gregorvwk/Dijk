@@ -85,8 +85,24 @@ const hasAllowedNetworkTargets = function(network) {
     return network.allowedDomains.length > 0 || getAllowedIps(network).length > 0
 }
 
+const addLabelArgs = function(args, labels) {
+    for (const [name, value] of Object.entries(labels)) {
+        args.push("--label", `${name}=${value}`)
+    }
+}
+
+// Keep stdin open so prompts work, and allocate a TTY when Dijk itself runs in
+// a terminal, so colors, interactive CLIs and dev server shortcuts work too.
+const addTerminalArgs = function(args) {
+    args.push("--interactive")
+
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+        args.push("--tty")
+    }
+}
+
 const addPortArgs = function(args, plan) {
-    if (plan.command[0] !== "npm" || plan.command[1] !== "run") {
+    if (!plan.publishPorts) {
         return
     }
 
@@ -133,27 +149,27 @@ const startNetworkGateway = function(plan) {
         networkName,
         "--cap-add",
         "NET_ADMIN",
-        "--label",
-        "dijk=true",
+    ]
+
+    addLabelArgs(args, plan.labels)
+    args.push(
         "--env",
         `ALLOWED_DOMAINS=${plan.network.allowedDomains.join(",")}`,
         "--env",
         `ALLOWED_IPS=${getAllowedIps(plan.network).join(",")}`,
         "--mount",
         `type=bind,source=${gatewayScriptPath},destination=/dijk-gateway.sh,readonly`,
-    ]
+    )
 
     addPortArgs(args, plan)
     args.push(gatewayImage, "sh", "/dijk-gateway.sh")
 
+    const networkArgs = ["network", "create"]
+    addLabelArgs(networkArgs, plan.labels)
+    networkArgs.push(networkName)
+
     try {
-        runDockerCommand([
-            "network",
-            "create",
-            "--label",
-            "dijk=true",
-            networkName,
-        ])
+        runDockerCommand(networkArgs)
         runDockerCommand(args)
         waitForNetworkGateway(containerName)
     } catch (error) {
@@ -176,9 +192,8 @@ const buildDockerRunArgs = function(plan, containerName, gateway) {
         containerName,
     ]
 
-    for (const [name, value] of Object.entries(plan.labels)) {
-        args.push("--label", `${name}=${value}`)
-    }
+    addTerminalArgs(args)
+    addLabelArgs(args, plan.labels)
 
     for (const mount of plan.mounts) {
         addMountArgs(args, mount)

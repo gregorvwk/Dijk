@@ -155,6 +155,7 @@ const createProjectConfig = function(projectRoot = process.cwd()) {
 }
 
 module.exports = {
+    configFileName,
     createProjectConfig,
     defaultProjectConfig,
     loadProjectConfig,

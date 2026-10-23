@@ -3,12 +3,13 @@
 const { cleanupCommand } = require("./commands/cleanup")
 const { helpCommand } = require("./commands/help")
 const { initCommand } = require("./commands/init")
-const { ciCommand, installCommand, runCommand } = require("./commands/npm")
+const { ciCommand, execCommand, installCommand, runCommand } = require("./commands/npm")
 
 const COMMANDS = {
     INSTALL: "install",
     CI: "ci",
     RUN: "run",
+    EXEC: "exec",
     INIT: "init",
     CLEANUP: "cleanup",
     HELP: "--help",
@@ -25,10 +26,12 @@ const main = async function() {
             return ciCommand(args)
         case COMMANDS.RUN:
             return runCommand(args)
+        case COMMANDS.EXEC:
+            return execCommand(args)
         case COMMANDS.INIT:
             return initCommand()
         case COMMANDS.CLEANUP:
-            return cleanupCommand()
+            return cleanupCommand(args)
         case COMMANDS.HELP:
             return helpCommand()
         default:

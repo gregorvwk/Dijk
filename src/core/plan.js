@@ -1,8 +1,12 @@
 // sandbox planning
 
-const { lstatSync, realpathSync } = require("node:fs")
-const { relative, resolve, sep } = require("node:path")
-const { defaultProjectConfig, loadProjectConfig } = require("./config")
+const { createHash } = require("node:crypto")
+const { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync, writeFileSync } = require("node:fs")
+const { homedir } = require("node:os")
+const { isAbsolute, join, normalize, relative, resolve, sep } = require("node:path")
+const { configFileName, defaultProjectConfig, loadProjectConfig } = require("./config")
+
+const npmCacheDestination = "/dijk/npm-cache"
 
 const defaultSandboxConfig = {
     image: defaultProjectConfig.image,
@@ -28,6 +32,57 @@ const resolveProjectRoot = function(configRoot, projectDir) {
     }
 
     return projectRoot
+}
+
+const getProjectRoot = function(projectConfig = loadProjectConfig(defaultSandboxConfig.configRoot)) {
+    return resolveProjectRoot(
+        defaultSandboxConfig.configRoot,
+        projectConfig.projectDir ?? defaultProjectConfig.projectDir,
+    )
+}
+
+// Each project gets its own npm cache on the host, so a package in one project
+// cannot tamper with cached metadata or tarballs used by another project.
+const getNpmCacheDir = function(projectRoot) {
+    const projectId = createHash("sha256").update(projectRoot).digest("hex").slice(0, 16)
+    const cacheDir = join(getDijkCacheRoot(), "npm", projectId)
+
+    mkdirSync(cacheDir, { recursive: true, mode: 0o700 })
+
+    return cacheDir
+}
+
+const getDijkCacheRoot = function() {
+    return join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "dijk")
+}
+
+// Hidden files are replaced by this empty file, mounted read-only. It has no
+// permissions, so reads and writes inside the container fail instead of
+// silently returning nothing, as they would with /dev/null.
+const getMaskFile = function() {
+    const dir = getDijkCacheRoot()
+    const maskFile = join(dir, "masked-file")
+
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+
+    try {
+        const info = lstatSync(maskFile)
+
+        if (info.isFile() && info.size === 0 && (info.mode & 0o777) === 0) {
+            return maskFile
+        }
+
+        rmSync(maskFile, { force: true, recursive: true })
+    } catch (error) {
+        if (error.code !== "ENOENT") {
+            throw error
+        }
+    }
+
+    writeFileSync(maskFile, "", { mode: 0o000, flag: "wx" })
+    chmodSync(maskFile, 0o000)
+
+    return maskFile
 }
 
 const createHiddenFileMount = function(projectRoot, workDir, hiddenFile) {
@@ -67,7 +122,7 @@ const createHiddenFileMount = function(projectRoot, workDir, hiddenFile) {
 
     return {
         type: "bind",
-        source: "/dev/null",
+        source: getMaskFile(),
         destination,
         readonly: true,
     }
@@ -79,16 +134,67 @@ const createHiddenFileMounts = function(projectRoot, workDir, hiddenFiles) {
         .filter(Boolean)
 }
 
+// The config decides what the sandbox may do, so code inside the sandbox must
+// never be able to read or change it. Returns the mount that masks it, or null
+// when the config lives outside the mounted project.
+const createConfigMount = function(configRoot, projectRoot, workDir) {
+    const configPath = join(configRoot, configFileName)
+    let fileInfo
+
+    try {
+        fileInfo = lstatSync(configPath)
+    } catch (error) {
+        if (error.code === "ENOENT") {
+            // Without a config there is nothing to mask, and a package could
+            // create one that the next run would trust.
+            throw new Error(`No ${configFileName} found. Run \`dijk init\` first.`)
+        }
+
+        throw error
+    }
+
+    if (!fileInfo.isFile()) {
+        throw new Error(`${configFileName} must be a regular file, not a symbolic link or directory`)
+    }
+
+    // A second hard link would be a path to the config that the mask doesn't cover.
+    if (fileInfo.nlink > 1) {
+        throw new Error(`${configFileName} has more than one hard link`)
+    }
+
+    const pathFromProject = relative(projectRoot, realpathSync(configRoot))
+
+    if (pathFromProject === ".." || pathFromProject.startsWith(`..${sep}`) || isAbsolute(pathFromProject)) {
+        return null
+    }
+
+    // In a subdirectory of the project, sandboxed code could rename that
+    // directory and put its own config in its place.
+    if (pathFromProject !== "") {
+        throw new Error(`projectDir (${projectRoot}) contains the folder with ${configFileName}. `
+            + `Keep ${configFileName} in the project root, or outside the project.`)
+    }
+
+    return {
+        type: "bind",
+        source: getMaskFile(),
+        destination: `${workDir}/${configFileName}`,
+        readonly: true,
+    }
+}
+
 const createSandboxPlan = function(command, overrides = {}) {
-    const projectConfig = loadProjectConfig(defaultSandboxConfig.configRoot)
-    const projectRoot = resolveProjectRoot(
-        defaultSandboxConfig.configRoot,
-        projectConfig.projectDir ?? defaultProjectConfig.projectDir,
-    )
-    const hiddenFiles = projectConfig.hiddenFiles ?? defaultSandboxConfig.hiddenFiles
+    const configRoot = defaultSandboxConfig.configRoot
+    const projectConfig = loadProjectConfig(configRoot)
+    const projectRoot = getProjectRoot(projectConfig)
     const workDir = defaultSandboxConfig.workDir
+    const configMount = createConfigMount(configRoot, projectRoot, workDir)
+    // The config is always masked, so it doesn't need to be in hiddenFiles.
+    const hiddenFiles = (projectConfig.hiddenFiles ?? defaultSandboxConfig.hiddenFiles)
+        .filter((hiddenFile) => normalize(hiddenFile) !== configFileName)
     const env = {
         ...defaultSandboxConfig.env,
+        npm_config_cache: npmCacheDestination,
         ...overrides.env,
     }
 
@@ -100,6 +206,7 @@ const createSandboxPlan = function(command, overrides = {}) {
         user: defaultSandboxConfig.user,
         env,
         ports: projectConfig.ports ?? defaultSandboxConfig.ports,
+        publishPorts: overrides.publishPorts === true,
         network: projectConfig.network ?? defaultSandboxConfig.network,
         labels: {
             dijk: "true",
@@ -111,9 +218,15 @@ const createSandboxPlan = function(command, overrides = {}) {
                 source: projectRoot,
                 destination: workDir,
             },
+            {
+                type: "bind",
+                source: getNpmCacheDir(projectRoot),
+                destination: npmCacheDestination,
+            },
+            ...(configMount ? [configMount] : []),
             ...createHiddenFileMounts(projectRoot, workDir, hiddenFiles),
         ],
     }
 }
 
-module.exports = { createSandboxPlan }
+module.exports = { createSandboxPlan, getProjectRoot }
