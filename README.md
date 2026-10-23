@@ -48,9 +48,10 @@ Out of scope:
 - **Your users.** Whatever ends up in `node_modules` still ends up in your
   bundle and in production. Dijk does not make malicious packages safe; it
   limits what they can do on your development machine.
-- **Code that runs outside Dijk.** Your editor's TypeScript server, ESLint and
-  Prettier plugins, and test runners started from the IDE all load code from
-  `node_modules` on the host. See [Known gaps](#known-gaps).
+- **Code that runs outside Dijk.** Dijk only protects the commands that go
+  through it. Editor extensions, git hooks and anything started with plain
+  `npx` or `npm` still run dependency code on your machine. See
+  [Use it for everything](#use-it-for-everything).
 - **Docker itself.** Dijk relies on Docker for isolation. It is not a defense
   against container escapes.
 
@@ -83,6 +84,53 @@ dijk cleanup --all  # same, for every project
 Run `dijk init` before your first install. Without a config file, Dijk uses
 defaults, but the project has no protected config yet (see
 [Known gaps](#known-gaps)).
+
+## Use it for everything
+
+Dijk is all or nothing. A project either runs its dependencies through Dijk,
+or it doesn't. Mixing the two gives you the inconvenience of a sandbox without
+the protection.
+
+### Platform errors are expected
+
+Dijk installs packages inside a Linux container, so `node_modules` contains
+Linux builds of packages with native binaries, such as esbuild, Rollup (used by
+Vite), SWC, sharp and anything built with node-gyp. On macOS and Windows those
+binaries don't run outside the container, and tools fail with errors like:
+
+```text
+You installed esbuild for another platform than the one you're currently using.
+Cannot find module @rollup/rollup-darwin-arm64
+```
+
+This is intended. It means something tried to run dependency code on your
+machine instead of in the sandbox. Run the command through Dijk instead, for
+example as a script in `package.json` with `dijk run <script>`.
+
+Don't fix it with a plain `npm install` on the host. That replaces the Linux
+binaries, runs every install script on your machine, and breaks `dijk run` until
+you reinstall with Dijk.
+
+On Linux hosts the binaries do run, so you won't see these errors. The same
+rule applies: if it doesn't go through Dijk, it isn't sandboxed.
+
+### What still runs on your machine
+
+Pure JavaScript packages run fine on the host, so not every escape produces an
+error. Watch out for:
+
+- **Git hooks.** Husky, lint-staged and similar tools run from `node_modules`
+  on your machine on every commit. ESLint and Prettier are mostly pure
+  JavaScript, so they'll quietly work.
+- **Editor extensions.** The ESLint, Prettier and Vitest extensions and
+  TypeScript server plugins load code from `node_modules` in your editor's
+  process.
+- **`npx`, `npm` and `node` on the host.** Anything you start without Dijk.
+
+Editors are the biggest gap today: there is no sandboxed way to run editor
+tooling yet (see the [Roadmap](#roadmap)). If that matters for a project,
+disable the extensions that load project code, or use an editor setup that
+runs them in a container.
 
 ## How it works
 
@@ -166,10 +214,10 @@ order of severity. They are being worked on.
 - **IP-level allowlisting.** Allowed domains are allowed by IP address. Services
   sharing an IP (common behind CDNs) are allowed too, and a CDN can return
   different IPs to the gateway and the container.
-- **Your editor runs outside the sandbox.** The TypeScript server, linters and
-  IDE test runners load `node_modules` on the host.
-- **Linux binaries on macOS and Windows.** Packages with native binaries are
-  installed for Linux, so running them directly on the host fails.
+- **Editors and git hooks run outside the sandbox.** Editor extensions and git
+  hooks load code from `node_modules` on the host. See
+  [What still runs on your machine](#what-still-runs-on-your-machine).
+
 ## Design principles
 
 - **Feels like npm.** Same commands, same project layout.
