@@ -56,9 +56,15 @@ const getDijkCacheRoot = function() {
     return join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "dijk")
 }
 
-// Hidden files are replaced by this empty file, mounted read-only. It has no
-// permissions, so reads and writes inside the container fail instead of
+// Hidden files are replaced by this empty file, mounted read-only. On Linux it
+// has no permissions, so reads and writes inside the container fail instead of
 // silently returning nothing, as they would with /dev/null.
+// Docker Desktop (macOS, Windows) reads bind mount sources as the host user,
+// so it can't mount a file with no permissions. There the file is readable but
+// still empty and mounted read-only, so the hidden content never reaches the
+// sandbox and nothing can be written to it.
+const maskFileMode = process.platform === "linux" ? 0o000 : 0o444
+
 const getMaskFile = function() {
     const dir = getDijkCacheRoot()
     const maskFile = join(dir, "masked-file")
@@ -68,7 +74,7 @@ const getMaskFile = function() {
     try {
         const info = lstatSync(maskFile)
 
-        if (info.isFile() && info.size === 0 && (info.mode & 0o777) === 0) {
+        if (info.isFile() && info.size === 0 && (info.mode & 0o777) === maskFileMode) {
             return maskFile
         }
 
@@ -79,8 +85,8 @@ const getMaskFile = function() {
         }
     }
 
-    writeFileSync(maskFile, "", { mode: 0o000, flag: "wx" })
-    chmodSync(maskFile, 0o000)
+    writeFileSync(maskFile, "", { mode: maskFileMode, flag: "wx" })
+    chmodSync(maskFile, maskFileMode)
 
     return maskFile
 }
